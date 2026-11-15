@@ -324,6 +324,8 @@ the priors are updated.</p>
 <div class="card">
   <h4>A student's field attitude, course by course</h4>
   <p class="sub">Add the classes a student takes. Each one moves the attitude, like a GPA. Class priors come from the synthetic data.</p>
+  <p class="note" style="margin-top:-6px">Each chip is a <b>different course</b>. A student takes and passes a course only once, in one group,
+  so a course can be added once (click again to remove it). The field prior belongs to the course, not to the group.</p>
   <div class="controls"><button id="preset">Preset: 5 mandatory + 1 RF elective</button><button id="reset">Reset</button><span id="taken-count" class="note"></span></div>
   <div class="lbl">Mandatory</div><div class="chips" id="chips-m"></div>
   <div class="lbl">Electives</div><div class="chips" id="chips-e"></div>
@@ -405,7 +407,8 @@ const hideTip = () => tip.style.opacity = 0;
 const hoverable = (node, fn) => { node.addEventListener("mousemove", e => showTip(e, fn())); node.addEventListener("mouseleave", hideTip); };
 function rng(seed){ return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
   t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const short = c => c.replace("_Elective", " El.").replace("Comm ","Comm ").replace("Powe ","Power ").replace("Elec ","Elec ").replace("Digi ","Digital ").replace("Cont ","Control ");
+const COURSE_NAME = {"Comm_Elective1": "Information Theory", "Comm_Elective2": "Wireless Communications", "Comm_Elective3": "Data Networks", "RF_Elective1": "Microwave Engineering", "RF_Elective2": "Antennas", "RF_Elective3": "RF Circuits", "Powe_Elective1": "Power Systems", "Powe_Elective2": "Power Electronics", "Powe_Elective3": "Electric Machines", "Elec_Elective1": "Analog IC Design", "Elec_Elective2": "VLSI", "Elec_Elective3": "Electronics 3", "Bio_Elective1": "Biomedical Instrumentation", "Bio_Elective2": "Biosignal Processing", "Bio_Elective3": "Medical Imaging", "Digi_Elective1": "Computer Architecture", "Digi_Elective2": "Embedded Systems", "Digi_Elective3": "Digital Systems Design", "Cont_Elective1": "Nonlinear Control", "Cont_Elective2": "Robotics", "Cont_Elective3": "Optimal Control", "Circuits1": "Circuits 1", "EngMath": "Eng Math"};
+const short = c => COURSE_NAME[c] || c;
 
 /* ---------------- pipeline diagram ---------------- */
 (function(){
@@ -631,7 +634,7 @@ const short = c => c.replace("_Elective", " El.").replace("Comm ","Comm ").repla
       const social = st.friends.filter(f=>f.taken.includes(c)).length / st.friends.length;
       return {c, a:l*content, b:(1-l)*social, content, social};
     }).sort((x,y)=>(y.a+y.b)-(x.a+x.b)).slice(0,6);
-    s.innerHTML = ""; const x0 = 150, W = 440, rh = 44, maxv = 1;
+    s.innerHTML = ""; const x0 = 196, W = 380, rh = 44, maxv = 1;
     [0,0.25,0.5,0.75,1].forEach(v=>{ el("line",{x1:x0+v*W,x2:x0+v*W,y1:4,y2:rows.length*rh+4,stroke:"var(--line)","stroke-dasharray":v?"2 3":""},s);
       const t = el("text",{x:x0+v*W,y:rows.length*rh+20,"text-anchor":"middle","font-size":10.5},s); t.textContent = v; });
     rows.forEach((r,k)=>{ const y = 10+k*rh, h = 24;
