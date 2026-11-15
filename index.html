@@ -127,7 +127,7 @@ ol.refs li{margin:0 0 12px;color:var(--text-secondary);max-width:80ch}
   .layout{grid-template-columns:minmax(0,1fr)} .top .crumb{display:none} .top b{white-space:nowrap} .row>*{flex-basis:100%!important;max-width:100%!important} aside.side{display:none;position:fixed;top:56px;left:0;width:280px;z-index:7}
   aside.side.open{display:block} .menu-btn{display:inline-block} .content{padding:24px 18px 60px} .top input{width:120px}
 }
-</style></head><body>
+</style><style>.crow{display:grid;grid-template-columns:170px 1fr;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}.cname{font-size:13.5px;color:var(--text-primary);font-weight:600}@media (max-width:700px){.crow{grid-template-columns:1fr}}</style></head><body>
 <div class="top">
  <button class="menu-btn" aria-label="Menu">☰</button>
  <span class="logo"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="4" cy="11" r="2.2" fill="var(--surface-1)"/><circle cx="11" cy="4" r="2.2" fill="var(--surface-1)"/><circle cx="12" cy="12" r="1.6" fill="var(--surface-1)"/><path d="M4 11 L11 4 M11 4 L12 12" stroke="var(--surface-1)" stroke-width="1.2"/></svg></span>
@@ -323,13 +323,14 @@ the priors are updated.</p>
 
 <div class="card">
   <h4>A student's field attitude, course by course</h4>
-  <p class="sub">Add the classes a student takes. Each one moves the attitude, like a GPA. Class priors come from the synthetic data.</p>
-  <p class="note" style="margin-top:-6px">Each chip is a <b>different course</b>. A student takes and passes a course only once, in one group,
-  so a course can be added once (click again to remove it). The field prior belongs to the course, not to the group.</p>
-  <div class="controls"><button id="preset">Preset: 5 mandatory + 1 RF elective</button><button id="reset">Reset</button><span id="taken-count" class="note"></span></div>
-  <div class="lbl">Mandatory</div><div class="chips" id="chips-m"></div>
-  <div class="lbl">Electives</div><div class="chips" id="chips-e"></div>
-  <div class="panel3" id="panels" style="max-width:420px"></div>
+  <p class="sub">Every chip is one course with one professor. Each course–professor pair has its own prior: a 7-D vector, normalized with
+  the L2 norm, last updated in 1404-1 from the students of that pair who chose their field. Hover a chip to see it.</p>
+  <p class="note" style="margin-top:-6px">A student takes and passes a course only once, so only <b>one professor per course</b> can be picked
+  (picking another one replaces it; click again to remove). Professors and priors here are synthetic.</p>
+  <div class="controls"><button id="prof-preset">Example student</button><button id="prof-reset">Reset</button><span id="prof-count" class="note"></span></div>
+  <div id="prof-rows"></div>
+  <div class="panel3" style="max-width:420px;margin-top:14px"><div class="p" id="prof-panel"><h5>Student's field attitude</h5>
+    <div class="f">v<sub>t</sub> = Σ v<sub>i</sub> / ‖Σ v<sub>i</sub>‖<sub>2</sub>, shown as v<sub>t</sub>² (probabilities)</div></div></div>
 </div><div class="pn"></div></article><article id="page-vector-db">
 <h1>Vector database</h1>
 <p class="intro">Each student is one point with two vectors: one for friends, one for the field.</p>
@@ -578,46 +579,62 @@ const short = c => COURSE_NAME[c] || c;
   pa.oninput = pb.oninput = draw; draw();
 })();
 
-/* ---------------- 2b three update rules ---------------- */
+/* ---------------- 2b course–professor priors, one professor per course ---------------- */
 (function(){
-  const F = DATA.field, taken = [];
-  const mand = ["Circuits1","EngMath","Signals","Electromagnetics","Probability"];
-  const elect = Object.keys(F.p).filter(c=>c.includes("Elective"));
-  const chip = (c, box) => { const b = document.createElement("button"); b.className = "chip"; b.textContent = short(c);
-    b.onclick = ()=>{ const k = taken.indexOf(c); if (k<0) taken.push(c); else taken.splice(k,1); b.classList.toggle("on"); render(); };
-    box.appendChild(b); b.dataset.c = c; return b; };
-  mand.forEach(c=>chip(c, document.getElementById("chips-m"))); elect.forEach(c=>chip(c, document.getElementById("chips-e")));
-  const panels = document.getElementById("panels");
-  const defs = [{name:"Student's field attitude", f:"v_t = Σ v_i / ‖Σ v_i‖₂ , shown as v² (probabilities)"}];
-  const svgs = defs.map(d=>{ const p = document.createElement("div"); p.className = "p";
-    p.innerHTML = `<h5>${d.name}</h5><div class="f">${d.f}</div>`; const s = el("svg",{viewBox:"0 0 300 190",width:"100%"}); p.appendChild(s); panels.appendChild(p); return s; });
-  function compute(){
-    const n = taken.length, pi = F.pi;
-    if (!n) return [pi, pi, pi];
-    const avg = FIELDS.map((_,f)=>taken.reduce((s,c)=>s+F.p[c][f],0)/n);
-    const sv = FIELDS.map((_,f)=>taken.reduce((s,c)=>s+Math.sqrt(F.p[c][f]),0)); const nn = Math.hypot(...sv);
-    const norm = sv.map(x=>(x/nn)**2);
-    const sc = FIELDS.map((_,f)=>Math.log(pi[f]) + F.alpha*taken.reduce((s,c)=>s+F.lift[c][f],0));
-    const mx = Math.max(...sc), ex = sc.map(x=>Math.exp(x-mx)), se = ex.reduce((a,b)=>a+b,0);
-    return [avg, norm, ex.map(x=>x/se)];
-  }
-  function bars(s, P){
-    s.innerHTML = ""; const H = 150, T = 10, bw = 26, gap = 10, x0 = 38;
-    [0,0.25,0.5,0.75,1].forEach(v=>{ el("line",{x1:x0-4,x2:x0+7*(bw+gap),y1:T+H-v*H,y2:T+H-v*H,stroke:"var(--line)","stroke-dasharray":v?"2 3":""},s);
-      const t = el("text",{x:x0-8,y:T+H-v*H+4,"text-anchor":"end","font-size":10},s); t.textContent = v; });
+  const box = document.getElementById("prof-rows"); if (!box) return;
+  const CAT = {"fields": ["Communications", "RF", "Power", "Electronics", "Bio", "Digital", "Control"], "updated": "1404-1", "courses": [{"course": "Signals and Systems", "kind": "mandatory", "groups": [{"id": "SignalsNSystems-Dr.A", "prof": "Dr.A", "v": [0.6171, 0.1977, 0.4031, 0.3257, 0.3, 0.3774, 0.2812], "n": 201}, {"id": "SignalsNSystems-Dr.B", "prof": "Dr.B", "v": [0.3793, 0.2486, 0.6049, 0.3399, 0.2517, 0.3997, 0.2997], "n": 129}, {"id": "SignalsNSystems-Dr.C", "prof": "Dr.C", "v": [0.3614, 0.3009, 0.3784, 0.3699, 0.3688, 0.4654, 0.3824], "n": 116}, {"id": "SignalsNSystems-Dr.D", "prof": "Dr.D", "v": [0.5, 0.3053, 0.2745, 0.2952, 0.2813, 0.5682, 0.304], "n": 114}, {"id": "SignalsNSystems-Dr.E", "prof": "Dr.E", "v": [0.439, 0.3548, 0.2897, 0.3152, 0.3237, 0.4787, 0.4051], "n": 48}]}, {"course": "Electric Circuits", "kind": "mandatory", "groups": [{"id": "electriccircuits_Dr.A", "prof": "Dr.A", "v": [0.5383, 0.2265, 0.4865, 0.3949, 0.2716, 0.3553, 0.2573], "n": 45}, {"id": "electriccircuits_Dr.M", "prof": "Dr.M", "v": [0.3048, 0.2892, 0.302, 0.5612, 0.3101, 0.4006, 0.4009], "n": 65}, {"id": "electriccircuits_Dr.D", "prof": "Dr.D", "v": [0.4347, 0.33, 0.3719, 0.3799, 0.2881, 0.5096, 0.2772], "n": 128}, {"id": "electriccircuits_Dr.N", "prof": "Dr.N", "v": [0.4134, 0.2953, 0.4404, 0.4296, 0.369, 0.335, 0.339], "n": 139}, {"id": "electriccircuits_Dr.P", "prof": "Dr.P", "v": [0.3666, 0.3433, 0.4672, 0.3544, 0.2261, 0.4156, 0.4242], "n": 86}]}, {"course": "Engineering Math", "kind": "mandatory", "groups": [{"id": "Engineering-Math_Dr.X", "prof": "Dr.X", "v": [0.3338, 0.3845, 0.5717, 0.353, 0.2811, 0.3305, 0.3179], "n": 211}, {"id": "Engineering-Math_Dr.Y", "prof": "Dr.Y", "v": [0.3913, 0.3747, 0.3873, 0.4464, 0.3101, 0.4241, 0.285], "n": 183}, {"id": "Engineering-Math_Dr.Z", "prof": "Dr.Z", "v": [0.3659, 0.4061, 0.3483, 0.3793, 0.2833, 0.4234, 0.4201], "n": 202}]}, {"course": "Probability", "kind": "mandatory", "groups": [{"id": "Probability_Dr.X", "prof": "Dr.X", "v": [0.3792, 0.3573, 0.5561, 0.3386, 0.2794, 0.3765, 0.2912], "n": 146}, {"id": "Probability_Dr.P", "prof": "Dr.P", "v": [0.4405, 0.3453, 0.4096, 0.3001, 0.2225, 0.4273, 0.4437], "n": 76}, {"id": "Probability_Dr.Y", "prof": "Dr.Y", "v": [0.477, 0.358, 0.3765, 0.4093, 0.2895, 0.4297, 0.2579], "n": 111}]}, {"course": "Electronics 1", "kind": "mandatory", "groups": [{"id": "Electronic1_Dr.B", "prof": "Dr.B", "v": [0.321, 0.2206, 0.5917, 0.4528, 0.2318, 0.4028, 0.2776], "n": 202}, {"id": "Electronic1_Dr.J", "prof": "Dr.J", "v": [0.3713, 0.1891, 0.4, 0.5497, 0.207, 0.4889, 0.287], "n": 211}, {"id": "Electronic1_Dr.R", "prof": "Dr.R", "v": [0.3388, 0.2769, 0.3198, 0.415, 0.4056, 0.4827, 0.3696], "n": 185}]}, {"course": "Electromagnetics", "kind": "mandatory", "groups": [{"id": "Electromagnetics_Dr.K", "prof": "Dr.K", "v": [0.4677, 0.3065, 0.3285, 0.4566, 0.3771, 0.3039, 0.3692], "n": 134}, {"id": "Electromagnetics_Dr.S", "prof": "Dr.S", "v": [0.2828, 0.4043, 0.3204, 0.4037, 0.2109, 0.5022, 0.4407], "n": 178}, {"id": "Electromagnetics_Dr.T", "prof": "Dr.T", "v": [0.3273, 0.375, 0.3264, 0.3491, 0.3121, 0.5656, 0.3264], "n": 175}]}, {"course": "Linear Control", "kind": "mandatory", "groups": [{"id": "LinearControl_Dr.H", "prof": "Dr.H", "v": [0.4089, 0.3151, 0.338, 0.4526, 0.3345, 0.361, 0.415], "n": 253}, {"id": "LinearControl_Dr.F", "prof": "Dr.F", "v": [0.3873, 0.2054, 0.4639, 0.2586, 0.2262, 0.3974, 0.5626], "n": 104}]}, {"course": "Digital Systems", "kind": "mandatory", "groups": [{"id": "DigitalSystems_Dr.L", "prof": "Dr.L", "v": [0.3506, 0.2591, 0.504, 0.2882, 0.3001, 0.4497, 0.4249], "n": 153}, {"id": "DigitalSystems_Dr.Q", "prof": "Dr.Q", "v": [0.3721, 0.3141, 0.3043, 0.3855, 0.2611, 0.6178, 0.268], "n": 179}]}, {"course": "Information Theory", "kind": "elective", "groups": [{"id": "InformationTheory_Dr.A", "prof": "Dr.A", "v": [0.8589, 0.1411, 0.259, 0.2184, 0.1805, 0.2659, 0.1561], "n": 51}, {"id": "InformationTheory_Dr.E", "prof": "Dr.E", "v": [0.6746, 0.3082, 0.2887, 0.2776, 0.2781, 0.3449, 0.3055], "n": 63}]}, {"course": "Data Networks", "kind": "elective", "groups": [{"id": "DataNetworks_Dr.V", "prof": "Dr.V", "v": [0.6755, 0.2267, 0.3804, 0.302, 0.282, 0.3252, 0.2667], "n": 66}]}, {"course": "Microwave Engineering", "kind": "elective", "groups": [{"id": "Microwave_Dr.K", "prof": "Dr.K", "v": [0.3897, 0.5546, 0.2985, 0.4058, 0.3387, 0.2721, 0.313], "n": 58}, {"id": "Microwave_Dr.S", "prof": "Dr.S", "v": [0.2212, 0.6862, 0.2735, 0.2948, 0.1644, 0.4136, 0.3469], "n": 44}]}, {"course": "Antennas", "kind": "elective", "groups": [{"id": "Antennas_Dr.T", "prof": "Dr.T", "v": [0.3275, 0.5607, 0.2739, 0.2989, 0.304, 0.4913, 0.2831], "n": 35}]}, {"course": "Power Systems", "kind": "elective", "groups": [{"id": "PowerSystems_Dr.G", "prof": "Dr.G", "v": [0.2236, 0.1899, 0.7621, 0.2619, 0.2601, 0.3464, 0.2773], "n": 60}]}, {"course": "Power Electronics", "kind": "elective", "groups": [{"id": "PowerElectronics_Dr.N", "prof": "Dr.N", "v": [0.3358, 0.2573, 0.6264, 0.4339, 0.3031, 0.2777, 0.2674], "n": 47}, {"id": "PowerElectronics_Dr.G", "prof": "Dr.G", "v": [0.2762, 0.1805, 0.6484, 0.4439, 0.2769, 0.3445, 0.2799], "n": 57}]}, {"course": "Analog IC Design", "kind": "elective", "groups": [{"id": "AnalogIC_Dr.R", "prof": "Dr.R", "v": [0.2411, 0.2108, 0.2892, 0.7098, 0.3102, 0.3459, 0.3068], "n": 33}]}, {"course": "VLSI", "kind": "elective", "groups": [{"id": "VLSI_Dr.J", "prof": "Dr.J", "v": [0.3022, 0.1512, 0.3006, 0.6413, 0.1599, 0.5546, 0.226], "n": 33}]}, {"course": "Biomedical Instrumentation", "kind": "elective", "groups": [{"id": "BiomedicalInstrumentation_Dr.W", "prof": "Dr.W", "v": [0.2571, 0.379, 0.3317, 0.3855, 0.577, 0.35, 0.276], "n": 17}]}, {"course": "Biosignal Processing", "kind": "elective", "groups": [{"id": "BiosignalProcessing_Dr.C", "prof": "Dr.C", "v": [0.3025, 0.2357, 0.3226, 0.2882, 0.6924, 0.3101, 0.3003], "n": 34}]}, {"course": "Computer Architecture", "kind": "elective", "groups": [{"id": "ComputerArchitecture_Dr.L", "prof": "Dr.L", "v": [0.2907, 0.2201, 0.4064, 0.2397, 0.2603, 0.6767, 0.3445], "n": 47}]}, {"course": "Embedded Systems", "kind": "elective", "groups": [{"id": "EmbeddedSystems_Dr.Q", "prof": "Dr.Q", "v": [0.3143, 0.2403, 0.2687, 0.288, 0.1994, 0.7425, 0.3118], "n": 36}, {"id": "EmbeddedSystems_Dr.L", "prof": "Dr.L", "v": [0.3458, 0.2295, 0.3917, 0.2078, 0.2519, 0.5847, 0.4751], "n": 21}]}, {"course": "Nonlinear Control", "kind": "elective", "groups": [{"id": "NonlinearControl_Dr.H", "prof": "Dr.H", "v": [0.3696, 0.2334, 0.2542, 0.3263, 0.2485, 0.3221, 0.6873], "n": 60}]}, {"course": "Robotics", "kind": "elective", "groups": [{"id": "Robotics_Dr.F", "prof": "Dr.F", "v": [0.2973, 0.1594, 0.3498, 0.2258, 0.1705, 0.4589, 0.6879], "n": 48}]}]}, FN = CAT.fields, sel = {};
+  const groupsOf = k => CAT.courses.filter(c => c.kind === k);
+  const pct = v => Math.round(v*v*100) + "%";
+  const btns = {};
+  [["Mandatory", "mandatory"], ["Electives", "elective"]].forEach(([title, kind]) => {
+    const h = document.createElement("div"); h.className = "lbl"; h.textContent = title; box.appendChild(h);
+    groupsOf(kind).forEach(c => {
+      const row = document.createElement("div"); row.className = "crow";
+      row.innerHTML = `<div class="cname">${c.course}</div>`;
+      const chips = document.createElement("div"); chips.className = "chips"; chips.style.margin = "0";
+      c.groups.forEach(g => {
+        const b = document.createElement("button"); b.className = "chip mono"; b.textContent = g.id; b.style.fontSize = "12px";
+        hoverable(b, () => {
+          const top = g.v.map((x, i) => [x, i]).sort((p, q) => q[0] - p[0]).slice(0, 3);
+          return `<b>${g.id}</b><br>prior of ${g.n} students, updated ${CAT.updated}<br>` +
+            top.map(([x, i]) => `${FN[i]} ${pct(x)}`).join(" · ") + `<br>‖v‖₂ = 1`; });
+        b.onclick = () => {
+          if (sel[c.course] === g.id) delete sel[c.course]; else sel[c.course] = g.id;
+          c.groups.forEach(o => btns[o.id].classList.toggle("on", sel[c.course] === o.id));
+          render();
+        };
+        btns[g.id] = b; chips.appendChild(b);
+      });
+      row.appendChild(chips); box.appendChild(row);
+    });
+  });
+  const svg = el("svg", {viewBox: "0 0 300 190", width: "100%"}); document.getElementById("prof-panel").appendChild(svg);
+  const byId = {}; CAT.courses.forEach(c => c.groups.forEach(g => byId[g.id] = g));
+  function bars(P){
+    svg.innerHTML = ""; const H = 150, T = 10, bw = 26, gap = 10, x0 = 38;
+    [0, 0.25, 0.5, 0.75, 1].forEach(v => { el("line", {x1: x0-4, x2: x0+7*(bw+gap), y1: T+H-v*H, y2: T+H-v*H, stroke: "var(--line)", "stroke-dasharray": v ? "2 3" : ""}, svg);
+      const t = el("text", {x: x0-8, y: T+H-v*H+4, "text-anchor": "end", "font-size": 10}, svg); t.textContent = v; });
     const top = P.indexOf(Math.max(...P));
-    P.forEach((p,f)=>{ const x = x0+f*(bw+gap)+4, h = Math.max(p*H,1);
-      const r = el("path",{d:`M${x},${T+H} v${-(h-4)} q0,-4 4,-4 h${bw-8} q4,0 4,4 v${h-4} z`,fill:FCOL[f]},s);
-      if (f===top){ const t = el("text",{x:x+bw/2,y:T+H-h-5,"text-anchor":"middle","font-size":10.5,class:"t-primary"},s); t.textContent = Math.round(p*100)+"%"; }
-      const l = el("text",{x:x+bw/2,y:T+H+14,"text-anchor":"middle","font-size":10},s); l.textContent = FIELDS[f].slice(0,4);
-      const hit = el("rect",{x:x-4,y:T,width:bw+8,height:H+16,fill:"transparent"},s);
-      hoverable(hit, ()=>`<b>${FIELDS[f]}</b><br>${(p*100).toFixed(1)}%`); });
+    P.forEach((p, f) => { const x = x0+f*(bw+gap)+4, h = Math.max(p*H, 1);
+      el("path", {d: `M${x},${T+H} v${-(h-4)} q0,-4 4,-4 h${bw-8} q4,0 4,4 v${h-4} z`, fill: FCOL[f]}, svg);
+      if (f === top){ const t = el("text", {x: x+bw/2, y: T+H-h-5, "text-anchor": "middle", "font-size": 10.5, class: "t-primary"}, svg); t.textContent = Math.round(p*100) + "%"; }
+      const l = el("text", {x: x+bw/2, y: T+H+14, "text-anchor": "middle", "font-size": 10}, svg); l.textContent = FN[f].slice(0, 4);
+      const hit = el("rect", {x: x-4, y: T, width: bw+8, height: H+16, fill: "transparent"}, svg);
+      hoverable(hit, () => `<b>${FN[f]}</b><br>${(p*100).toFixed(1)}%`); });
   }
-  function render(){ bars(svgs[0], compute()[1]);
-    document.getElementById("taken-count").textContent = taken.length ? `${taken.length} course${taken.length>1?"s":""} taken` : "no courses yet"; }
-  document.getElementById("reset").onclick = ()=>{ taken.length = 0; document.querySelectorAll(".chips .chip").forEach(b=>b.classList.remove("on")); render(); };
-  document.getElementById("preset").onclick = ()=>{ document.getElementById("reset").click();
-    [...mand, "RF_Elective1"].forEach(c=>document.querySelector(`.chip[data-c="${c}"]`).click()); };
+  function render(){
+    const ids = Object.values(sel);
+    let P;
+    if (!ids.length) P = Array(7).fill(1/7);
+    else { const s = Array(7).fill(0); ids.forEach(id => byId[id].v.forEach((x, i) => s[i] += x));
+      const n = Math.hypot(...s); P = s.map(x => (x/n)**2); }
+    bars(P);
+    document.getElementById("prof-count").textContent = ids.length ? `${ids.length} course${ids.length > 1 ? "s" : ""}: ${ids.join(", ")}` : "no courses yet";
+  }
+  document.getElementById("prof-reset").onclick = () => { Object.keys(sel).forEach(k => delete sel[k]); Object.values(btns).forEach(b => b.classList.remove("on")); render(); };
+  document.getElementById("prof-preset").onclick = () => { document.getElementById("prof-reset").click();
+    ["SignalsNSystems-Dr.A", "electriccircuits_Dr.M", "Engineering-Math_Dr.Y", "Probability_Dr.X", "Electronic1_Dr.B", "Electromagnetics_Dr.K", "Microwave_Dr.S"]
+      .forEach(id => btns[id].click()); };
   render();
 })();
 
